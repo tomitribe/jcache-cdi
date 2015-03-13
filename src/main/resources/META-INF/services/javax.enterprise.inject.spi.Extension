@@ -1,0 +1,3 @@
+org.tomitribe.jcache.cdi.ExtraJCacheExtension
+org.jsr107.ri.annotations.cdi.InterceptorExtension
+
