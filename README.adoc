@@ -48,9 +48,13 @@ required part of the Web Profile as well as the Full Profile. CDI provides the c
 bean and the ability to inject beans into other managed components.
 
 CDI includes support for:
+
 * Injection (with scoping, names, qualifiers, stereotypes and alternatives)
+
 * Producers (factory methods)
+
 * Interceptors
+
 * Observers
 
 In addition, you can define your own CDI extensions which allow a great deal of flexibility within the CDI container. We'll specifically
