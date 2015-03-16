@@ -1,0 +1,424 @@
+= JCache-CDI
+
+== JCache
+
+JCache (https://github.com/jsr107/jsr107spec[JSR-107]) defines a standard Java Caching API for use by developers and a standard SPI ("Service Provider Interface") for use by implementers.
+
+The key concepts in JCache are:
+
+* +CachingProvider+
+
+This is the entry point for using JCache. The default CachingProvider can be accessed via +Caching.getCachingProvider()+. This interface provides access to a number of +CacheManager+s.
+
+* +CacheManager+
+
+A +CacheManager+ provides access to a number of named +Cache+s.
+
+* +Cache+
+
+A temporary key-based store, similar to a +Map+. A cache can store a number of entries for fast lookup for a period of time until the entry expires.
+
+Using JCache in a Java SE way is shown in the "Hello world" example below.
+
+[source,java,numbered]
+----
+    CachingProvider provider = Caching.getCachingProvider();
+    CacheManager manager = provider.getCacheManager();
+
+    Configuration<String, String> configuration = new MutableConfiguration<String, String>().setTypes(String.class, String.class);
+    Cache<String, String> cache = manager.createCache("simpleCache", configuration);
+
+    cache.put("phrase", "Hello, world!");
+
+    String value = cache.get("phrase");
+    System.out.println("Value: " + value);
+----
+
+There's nothing wrong with taking this approach within a Java EE application, but notice that this example has a reasonable amount of
+boilerplate code, and the JCache objects created aren't managed by the Java EE container - we cannot inject them into EJB or CDI beans
+for example.
+
+Java EE doesn't include JCache as yet, although hopefully that will change in future Java EE specifications. In the meantime though, we
+can use a little of CDI fairy dust to start using JCache in a Java EE application with minimal fuss.
+
+== CDI
+
+Contexts and Dependency Injection (https://jcp.org/en/jsr/detail?id=346[JSR-346]) first arrived in Java EE in version 6, and is a
+required part of the Web Profile as well as the Full Profile. CDI provides the container with the capability to manage the lifecycle of a
+bean and the ability to inject beans into other managed components.
+
+CDI includes support for:
+* Injection (with scoping, names, qualifiers, stereotypes and alternatives)
+* Producers (factory methods)
+* Interceptors
+* Observers
+
+In addition, you can define your own CDI extensions which allow a great deal of flexibility within the CDI container. We'll specifically
+focus on Producers and Interceptors here. There are some easy to follow CDI examples on the TomEE website (http://tomee.apache.org/examples-trunk/index.html)
+and some great YouTube videos on CDI presented by Alex Soto (https://www.youtube.com/user/lordofthejars/videos).
+
+== About this library
+
+This library is made up from the interceptors and annotations from the JCache reference implementation (https://github.com/jsr107/RI/tree/master/cache-annotations-ri/cache-annotations-ri-cdi)
+and an additional extension that will load the JCache provider at deployment time and create CachingProvider and CacheManager CDI beans that
+can be directly injected into managed beans.
+
+In effect that means the code above, can now become:
+
+[source,java,numbered]
+----
+    public class MyBean {
+
+        @Inject
+        private CacheManager mgr;
+
+        public void doSomething() {
+
+            final Configuration<String, String> configuration = new MutableConfiguration<String, String>().setTypes(String.class, String.class);
+            final Cache<String, String> cache = mgr.createCache("simpleCache", configuration);
+
+            cache.put("phrase", "Hello, world!");
+
+            final String value = cache.get("phrase");
+            System.out.println("Value: " + value);
+        }
+    }
+----
+
+Note that +CacheManager+ does not need to be created any more, it is injected straight in.
+
+== Using JCache with CDI in your Java EE application
+
+To use this library in your Java EE application, include the following dependencies in your pom.xml (I'm using Hazelcast
+as the JCache implementation here):
+
+[source,xml,numbered]
+----
+    <dependency>
+      <groupId>javax.cache</groupId>
+      <artifactId>cache-api</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.hazelcast</groupId>
+      <artifactId>hazelcast</artifactId>
+      <version>3.4.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.tomitribe</groupId>
+      <artifactId>jcache-cdi</artifactId>
+      <version>0.1-SNAPSHOT</version>
+    </dependency>
+----
+
+and you will need to add an empty +beans.xml+ file.
+
+[source,xml,numbered]
+----
+    <beans xmlns="http://java.sun.com/xml/ns/javaee"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+                           http://java.sun.com/xml/ns/javaee/beans_1_0.xsd" />
+----
+
+This is everything you need to add JCache to your existing project. This library has been tested with Hazelcast on TomEE, but
+should be portable in work in different application servers and with different JCache implementations.
+
+=== Producer
+
+You've already seen the example above, where +CachingProvider+ and +CacheManager+ can be directly injected into beans
+managed by the container. But, wouldn't it be nice if we could eliminate the configuration and +CacheManager.createCache()+ call, and just
+inject +Cache+ straight into our beans? Well, with a little work with CDI, we can. The solution here is to use a producer.
+
+At a very simple producer would look like this:
+
+[source,java,numbered]
+----
+    public class CacheProducer {
+
+        @Inject
+        private CacheManager mgr;
+
+        @Produces
+        @Singleton
+        public Cache<String, String> createCache() {
+            final Configuration<String, String> configuration = new MutableConfiguration<String, String>().setTypes(String.class, String.class);
+            final Cache<String, String> cache = mgr.createCache("simpleCache", configuration);
+
+            return cache;
+        }
+    }
+----
+
+Notice that we simply moved the configuration and +createCache+ call into a factory method. Now we can use +@Inject Cache<String, String>+ in
+our application code. This has some limitations though - for example we cannot use this to create different caches with different names.
+
+We could take this one step further, and use a qualifier to define different caches. To use a qualifier, you need to define an annotation.
+For example:
+
+[source,java,numbered]
+----
+    @Retention(RetentionPolicy.RUNTIME)
+    @Inherited
+    @Target({ElementType.METHOD, ElementType.FIELD})
+    public @interface DefaultCache {
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Inherited
+    @Target({ElementType.METHOD, ElementType.FIELD})
+    public @interface AnotherCache {
+    }
+----
+
+and then define different producers:
+
+[source,java,numbered]
+----
+    @Produces
+    @Singleton
+    @DefaultCache
+    public Cache<String, String> createCache() {
+        // create the cache
+    }
+
+    @Produces
+    @Singleton
+    @AnotherCache
+    public Cache<String, String> createCache() {
+        // create the cache
+    }
+----
+
+This provides us with a little more flexibility, but could become unwieldy down the line. Another approach is to define some options
+on the annotation that we create, and then use these within our Producer method to control the configuration and creation of the cache.
+
+For example - add a name option to the annotation
+
+[source,java,numbered]
+----
+    @Retention(RetentionPolicy.RUNTIME)
+    @Inherited
+    @Target({ElementType.METHOD, ElementType.FIELD})
+    public @interface MyCache {
+        String name() default "default";
+    }
+----
+
+and access the annotation added to the field using an InjectionPoint parameter on the Producer. Note that this does not
+include the +@Singleton+ annotation.
+
+[source,java,numbered]
+----
+    @Produces
+    @MyCache
+    public Cache<Object, Object> createCache(final InjectionPoint injectionPoint) {
+
+        final MyCache cache = injectionPoint.getAnnotated().getAnnotation(MyCache.class);
+
+        Cache<Object, Object> cache = mgr.getCache(cache.name());
+        if (cache == null) {
+            final MutableConfiguration<Object, Object> config = new MutableConfiguration<Object, Object>()
+                    .setTypes(Object.class, Object.class);
+
+            cache = mgr.createCache(cache.name(), config);
+        }
+
+        return cache;
+    }
+----
+
+=== Built-in Interceptors
+
+Being able to create your own producer is great, but you still need to do all the work of figuring out when to add objects to the cache,
+when to remove invalid objects and when to fetch objects from the cache.
+
+Fortunately the JCache specification defines a set of annotations specifically for implementations to provide interceptors to do the heavy
+lifting for you. The JCache reference implementation provides a default implementation of these interceptors and these have been
+shaded into this library.
+
+These built in interceptors can be used by annotating the methods to you want to be intercepted with the appropriate annotation.
+
+The interceptors are outlined briefly below, and full Javadoc can be found here: https://github.com/jsr107/jsr107spec/tree/master/src/main/java/javax/cache/annotation
+
+==== +@CacheResult+
+
++CacheResult+ will cache the result of a method call, using specified parameters as the key, using the +@CacheKey+ annotation below.
+Subsequent calls to the method will be checked against the cache, and the result returned from cache if available. +CacheResult+ provides
+some simple options, including:
+
++cacheName+: The name of the cache to use for the result
++skipGet+: Always caches the result, but does not use the value in the cache to return from the method.
+
+In a very simple case, the result of method could be cached simply by adding +@CacheResult(cacheName="myCache")+:
+
+[source,java,numbered]
+----
+    @CacheResult(cacheName = "results")
+    public List<DomainObject> getResults(final Integer firstResult, final Integer maxResults, final String field, final String searchTerm) {
+        // TODO: search code here...
+    }
+----
+
+==== +@CacheKey / @CacheValue+
+
++@CacheKey+ and +@CacheValue+ should be specified on method parameters when using any of these interceptors. +@CacheValue+ identifies the object that should
+be cached, and +@CacheKey+ identifies the objects that should make up the key for the for cache entry.
+
++@CacheKey+ can be used in conjunction with +CacheKeyGenerator+ (below) to apply some logic to generate the actual key to use for the cache from the parameters
+annotated with +@CacheKey+.
+
+==== +CacheKeyGenerator+
+
+Your method may accept a domain object as a parameter, but you may not wish to use the domain object itself as the key for the cache, instead you may just wish
+to use an id field, for example. The +CacheKeyGenerator+ allows you to provide a class that can apply this logic.
+
+For example, a +@CachePut+ method such as
+
+[source,java,numbered]
+----
+    @CachePut(cacheName = "domainCache", cacheKeyGenerator = DomainObjectCacheKeyGenerator.class)
+    public void addObject(@CacheKey @CacheValue final DomainObject domObj) {
+        entityManager.persist(domObj);
+    }
+----
+
+could use a +CacheKeyGenerator+ like this:
+
+[source,java,numbered]
+----
+    public class DomainObjectCacheKeyGenerator implements CacheKeyGenerator {
+        @Override
+        public GeneratedCacheKey generateCacheKey(final CacheKeyInvocationContext<? extends Annotation> cacheKeyInvocationContext) {
+
+            final CacheInvocationParameter[] allParameters = cacheKeyInvocationContext.getAllParameters();
+            for (final CacheInvocationParameter parameter : allParameters) {
+                if (DomainObject.class.equals(parameter.getRawType())) {
+                    final DomainObject domObj = DomainObject.class.cast(parameter.getValue());
+                    return new DefaultGeneratedCacheKey(new Object[] { domObj.getId() });
+                }
+            }
+
+            throw new IllegalArgumentException("No domain object argument found in method signature");
+        }
+    }
+----
+
+==== +@CachePut+
+
++@CachePut+ allows you to add or update a value in the cache with a value passed into the method as a parameter. The parameter to cache
+should be annotated with +@CacheValue+ and the parameters that make up the key, should be annotated with +@CacheKey+. +@CacheKey+ can be used in conjunction with
+a +CacheKeyGenerator+ and +@CacheKey+ and +@CacheValue+ can be applied to the same parameter if appropriate. For example, to cache an entity that is being added
+to the database, the following code could be used:
+
+[source,java,numbered]
+----
+    @CachePut(cacheName = "domainById", cacheKeyGenerator = DomainObjectCacheKeyGenerator.class)
+    public void addObject(@CacheKey @CacheValue final DomainObject domObj) {
+        entityManager.persist(domObj);
+    }
+----
+
+==== +@CacheRemove+
+
++@CacheRemove+ can be used to remove a specific +@CacheKey+ from the cache. This might be particularly useful when the method called removes an entity from the system.
+For example:
+
+[source,java,numbered]
+----
+    @CacheRemove(cacheName = "domainCache")
+    public void deleteById(final long id) {
+        final DomainObject domObj = entityManager.find(DomainObject.class, id);
+        entityManager.remove(movie);
+    }
+----
+
+==== +@CacheRemoveAll+
+
++@CacheRemoveAll+ is similar to +@CacheRemove+ but will remove *all entries* from the specified cache.
+
+==== +@CacheDefaults+
+
+The +@CacheDefaults+ annotation can be applied at class level to provide a set of defaults for the method-level annotations. For example, you can save yourself
+specifying +cacheName+ and +cacheKeyGenerator+ on each method annotation by providing a +@CacheDefaults(cacheName = "domainCache", cacheKeyGenerator = DomainObjectCacheKeyGenerator.class)+
+on the class itself.
+
+==== Some limitations
+
+These annotations and interceptors can provide a really simple way to introduce JCache into your application. One specific limitation to be aware of though, is that
+only one +Cache+ annotation can be used on a method. So you can't for example, do this:
+
+[source,java,numbered]
+----
+    @CachePut(cacheName = "domainById", cacheKeyGenerator = DomainObjectCacheKeyGenerator.class)
+    @CacheRemoveAll(cacheName = "searchResults") // this is now invalid because we added an new object
+    public void addDomainObject(@CacheKey @CacheValue final DomainObject movie) {
+        entityManager.persist(movie);
+    }
+----
+
+You'd need to either work with the caches manually, or define your own interceptor.
+
+=== Creating your own
+
+Creating your own interceptor with CDI is really easy. Firstly, define a "marker" annotation:
+
+[source,java,numbered]
+----
+    @InterceptorBinding
+    @Target({ TYPE, METHOD })
+    @Retention(RUNTIME)
+    public @interface MyCacheAnnotation {
+    }
+----
+
+Next, create the interceptor. The key here is the +@AroundInvoke+ annotation and the +InvocationContext+ parameter.
+
+[source,java,numbered]
+----
+    @Interceptor
+    @MyCacheAnnotation
+    public class CacheInterceptor {
+
+        @Inject  // use your Producer to create this
+        private Cache<Object, Object> cache;
+
+        @AroundInvoke
+        public Object cache(final InvocationContext ctx) throws Exception {
+
+            final Object[] parameters = ctx.getParameters();
+            final Object result = ctx.proceed();
+
+            // TODO: your code here to work with the cache
+
+            return result;
+        }
+    }
+----
+
+Now, you can use your interceptor in your code:
+
+[source,java,numbered]
+----
+    @MyCacheAnnotation
+    public void addDomainObject(@CacheKey @CacheValue final DomainObject movie) {
+        entityManager.persist(movie);
+    }
+----
+
+Finally, you need to enable interceptors in your +beans.xml+ file:
+
+[source,xml,numbered]
+----
+    <beans xmlns="http://java.sun.com/xml/ns/javaee"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+                           http://java.sun.com/xml/ns/javaee/beans_1_0.xsd">
+
+        <interceptors>
+            <class>org.superbiz.jcache.interceptors.CacheInterceptor</class>
+        </interceptors>
+    </beans>
+----
+
+NOTE: As well as enabling interceptors, +beans.xml+ also defines the order the interceptors run in.
