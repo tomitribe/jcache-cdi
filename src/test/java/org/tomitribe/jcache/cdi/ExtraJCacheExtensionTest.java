@@ -22,13 +22,18 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import javax.cache.Cache;
 import javax.cache.CacheManager;
+import javax.cache.configuration.Configuration;
 import javax.cache.spi.CachingProvider;
 import javax.ejb.embeddable.EJBContainer;
 import javax.inject.Inject;
+import javax.persistence.criteria.CriteriaBuilder;
 import java.util.Random;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 
 public class ExtraJCacheExtensionTest
 {
@@ -91,12 +96,49 @@ public class ExtraJCacheExtensionTest
         assertNotNull(bean.getProvider());
     }
 
+    @Test
+    public void declarativeCacheCache1() {
+        Cache<String, String> cache1 = bean.getCache1();
+        assertNotNull(cache1);
+        Configuration configuration = cache1.getConfiguration(Configuration.class);
+        assertSame(String.class, configuration.getKeyType());
+        assertSame(String.class, configuration.getValueType());
+    }
+
+    @Test
+    public void declarativeCacheCache2() {
+        Cache<Integer, Integer> cache2 = bean.getCache2();
+        assertNotNull(cache2);
+        Configuration configuration = cache2.getConfiguration(Configuration.class);
+        assertSame(Integer.class, configuration.getKeyType());
+        assertSame(Integer.class, configuration.getValueType());
+    }
+
+    @Test
+    public void declarativeCachesNotSame() {
+        Cache<String, String> cache1 = bean.getCache1();
+        Cache<Integer, Integer> cache2 = bean.getCache2();
+        assertNotSame(cache1, cache2);
+    }
+
     public static class BeanWithInjections {
         @Inject
         private CacheManager mgr;
 
         @Inject
         private CachingProvider provider;
+
+        @Inject
+        @DeclarativeCache(value = "test1", keyType = String.class, valueType = String.class)
+        private Cache<String, String> cache1;
+
+        @Inject
+        @DeclarativeCache(value = "test2", keyType = Integer.class, valueType = Integer.class)
+        private Cache<Integer, Integer> cache2;
+
+        @Inject
+        @DeclarativeCache(value = "test3")
+        private Cache<Object, Object> cache3;
 
         public CacheManager getMgr()
         {
@@ -106,6 +148,16 @@ public class ExtraJCacheExtensionTest
         public CachingProvider getProvider()
         {
             return provider;
+        }
+
+        public Cache<String, String> getCache1()
+        {
+            return cache1;
+        }
+
+        public Cache<Integer, Integer> getCache2()
+        {
+            return cache2;
         }
     }
 
