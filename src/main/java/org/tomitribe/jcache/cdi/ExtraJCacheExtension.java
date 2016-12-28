@@ -39,9 +39,11 @@ import java.util.Properties;
 // add default CacheProvider and CacheManager
 public class ExtraJCacheExtension implements Extension
 {
+
     private static final String PROPERTY_LEGACY_ACTIVATION = "org.apache.jcs.extra.cdi";
     private static final String PROPERTY_ACTIVATION = "org.apache.jcache.extra.cdi";
     private static final boolean ACTIVATED = isExtensionActivated();
+    private static final String JCACHE_PROVIDER_CLASS = System.getProperty("cdi.jcache.cachingprovider");
 
     private boolean cacheManagerFound = false;
     private boolean cacheProviderFound = false;
@@ -93,7 +95,7 @@ public class ExtraJCacheExtension implements Extension
             return;
         }
 
-        cachingProvider = Caching.getCachingProvider();
+        cachingProvider = findCachingProvider();
         if (!cacheManagerFound)
         {
             cacheManager = cachingProvider.getCacheManager(
@@ -131,6 +133,15 @@ public class ExtraJCacheExtension implements Extension
             val = "true";
         }
         return "true".equals(val);
+    }
+
+    private CachingProvider findCachingProvider()
+    {
+        if (JCACHE_PROVIDER_CLASS == null)
+        {
+            return Caching.getCachingProvider();
+        }
+        return Caching.getCachingProvider(JCACHE_PROVIDER_CLASS);
     }
 
     public static final class DeclarativeCacheProducer {
