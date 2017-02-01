@@ -18,26 +18,41 @@
  */
 package org.tomitribe.jcache.cdi;
 
+import javax.cache.Cache;
 import javax.cache.CacheManager;
 import javax.cache.Caching;
 import javax.cache.spi.CachingProvider;
+import javax.enterprise.context.Dependent;
 import javax.enterprise.event.Observes;
+import javax.enterprise.inject.Produces;
 import javax.enterprise.inject.spi.AfterBeanDiscovery;
+import javax.enterprise.inject.spi.AnnotatedType;
 import javax.enterprise.inject.spi.Bean;
+import javax.enterprise.inject.spi.BeanManager;
+import javax.enterprise.inject.spi.BeforeBeanDiscovery;
 import javax.enterprise.inject.spi.BeforeShutdown;
 import javax.enterprise.inject.spi.Extension;
+import javax.enterprise.inject.spi.InjectionPoint;
 import javax.enterprise.inject.spi.ProcessBean;
 import java.util.Properties;
 
 // add default CacheProvider and CacheManager
 public class ExtraJCacheExtension implements Extension
 {
-    private static final boolean ACTIVATED = "true".equals(System.getProperty("org.apache.jcs.extra.cdi", "true"));
+    private static final String PROPERTY_LEGACY_ACTIVATION = "org.apache.jcs.extra.cdi";
+    private static final String PROPERTY_ACTIVATION = "org.apache.jcache.extra.cdi";
+    private static final boolean ACTIVATED = isExtensionActivated();
 
     private boolean cacheManagerFound = false;
     private boolean cacheProviderFound = false;
     private CacheManager cacheManager;
     private CachingProvider cachingProvider;
+
+    public void addCacheProducer(final @Observes BeforeBeanDiscovery beforeBeanDiscovery, BeanManager beanManager)
+    {
+        AnnotatedType<DeclarativeCacheProducer> annotatedType = beanManager.createAnnotatedType(DeclarativeCacheProducer.class);
+        beforeBeanDiscovery.addAnnotatedType(annotatedType);
+    }
 
     public <A> void processBean(final @Observes ProcessBean<A> processBeanEvent)
     {
@@ -102,6 +117,45 @@ public class ExtraJCacheExtension implements Extension
         if (cachingProvider != null)
         {
             cachingProvider.close();
+        }
+    }
+
+    private static boolean isExtensionActivated() {
+        String val = System.getProperty(PROPERTY_ACTIVATION);
+        if (val == null)
+        {
+            val = System.getProperty(PROPERTY_LEGACY_ACTIVATION);
+        }
+        if (val == null)
+        {
+            val = "true";
+        }
+        return "true".equals(val);
+    }
+
+    public static final class DeclarativeCacheProducer {
+
+        @Produces
+        @Dependent
+        @DeclarativeCache
+        public Cache injectDeclarativeCache(final InjectionPoint injectionPoint, final CacheManager cacheManager)
+        {
+            DeclarativeCache annotation = injectionPoint.getAnnotated().getAnnotation(DeclarativeCache.class);
+            if (annotation == null)
+            {
+                return null;
+            }
+
+            String cacheName = annotation.value();
+
+            Class<?> keyType = annotation.keyType();
+            Class<?> valueType = annotation.valueType();
+
+            if (keyType == Object.class && valueType == Object.class)
+            {
+                return cacheManager.getCache(cacheName);
+            }
+            return cacheManager.getCache(cacheName, keyType, valueType);
         }
     }
 }
