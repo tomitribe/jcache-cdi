@@ -1,0 +1,15 @@
+<hazelcast xsi:schemaLocation="http://www.hazelcast.com/schema/config hazelcast-config-3.7.xsd"
+           xmlns="http://www.hazelcast.com/schema/config"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <cache name="test1">
+    <key-type class-name="java.lang.String"/>
+    <value-type class-name="java.lang.String"/>
+  </cache>
+  <cache name="test2">
+    <key-type class-name="java.lang.Integer"/>
+    <value-type class-name="java.lang.Integer"/>
+  </cache>
+  <cache name="test3">
+  </cache>
+</hazelcast>

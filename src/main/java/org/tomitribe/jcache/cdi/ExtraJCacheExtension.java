@@ -18,14 +18,21 @@
  */
 package org.tomitribe.jcache.cdi;
 
+import javax.cache.Cache;
 import javax.cache.CacheManager;
 import javax.cache.Caching;
 import javax.cache.spi.CachingProvider;
+import javax.enterprise.context.Dependent;
 import javax.enterprise.event.Observes;
+import javax.enterprise.inject.Produces;
 import javax.enterprise.inject.spi.AfterBeanDiscovery;
+import javax.enterprise.inject.spi.AnnotatedType;
 import javax.enterprise.inject.spi.Bean;
+import javax.enterprise.inject.spi.BeanManager;
+import javax.enterprise.inject.spi.BeforeBeanDiscovery;
 import javax.enterprise.inject.spi.BeforeShutdown;
 import javax.enterprise.inject.spi.Extension;
+import javax.enterprise.inject.spi.InjectionPoint;
 import javax.enterprise.inject.spi.ProcessBean;
 import java.util.Properties;
 
@@ -38,6 +45,12 @@ public class ExtraJCacheExtension implements Extension
     private boolean cacheProviderFound = false;
     private CacheManager cacheManager;
     private CachingProvider cachingProvider;
+
+    public void addCacheProducer(final @Observes BeforeBeanDiscovery beforeBeanDiscovery, BeanManager beanManager)
+    {
+        AnnotatedType<DeclarativeCacheProducer> annotatedType = beanManager.createAnnotatedType(DeclarativeCacheProducer.class);
+        beforeBeanDiscovery.addAnnotatedType(annotatedType);
+    }
 
     public <A> void processBean(final @Observes ProcessBean<A> processBeanEvent)
     {
@@ -102,6 +115,32 @@ public class ExtraJCacheExtension implements Extension
         if (cachingProvider != null)
         {
             cachingProvider.close();
+        }
+    }
+
+    public static final class DeclarativeCacheProducer {
+
+        @Produces
+        @Dependent
+        @DeclarativeCache
+        public Cache injectDeclarativeCache(final InjectionPoint injectionPoint, final CacheManager cacheManager)
+        {
+            DeclarativeCache annotation = injectionPoint.getAnnotated().getAnnotation(DeclarativeCache.class);
+            if (annotation == null)
+            {
+                return null;
+            }
+
+            String cacheName = annotation.value();
+
+            Class<?> keyType = annotation.keyType();
+            Class<?> valueType = annotation.valueType();
+
+            if (keyType == Object.class && valueType == Object.class)
+            {
+                return cacheManager.getCache(cacheName);
+            }
+            return cacheManager.getCache(cacheName, keyType, valueType);
         }
     }
 }
